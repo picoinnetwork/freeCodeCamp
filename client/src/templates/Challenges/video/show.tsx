@@ -9,10 +9,10 @@ import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
 import type { Dispatch } from 'redux';
 import { createSelector } from 'reselect';
+import { isEqual } from 'lodash-es';
 import { Container, Col, Row, Button } from '@freecodecamp/ui';
 
 // Local Utilities
-import Loader from '../../../components/helpers/loader';
 import Spacer from '../../../components/helpers/spacer';
 import LearnLayout from '../../../components/layouts/learn';
 import { ChallengeNode, ChallengeMeta, Test } from '../../../redux/prop-types';
@@ -23,7 +23,7 @@ import VideoPlayer from '../components/video-player';
 import ChallengeTitle from '../components/challenge-title';
 import CompletionModal from '../components/completion-modal';
 import HelpModal from '../components/help-modal';
-import PrismFormatted from '../components/prism-formatted';
+import MultipleChoiceQuestions from '../components/multiple-choice-questions';
 import {
   challengeMounted,
   updateChallengeMeta,
@@ -76,9 +76,9 @@ interface ShowVideoProps {
 interface ShowVideoState {
   subtitles: string;
   downloadURL: string | null;
-  selectedOption: number | null;
-  answer: number;
-  showWrong: boolean;
+  selectedMcqOptions: (number | null)[];
+  submittedMcqAnswers: (number | null)[];
+  showFeedback: boolean;
   videoIsLoaded: boolean;
 }
 
@@ -89,16 +89,23 @@ class ShowVideo extends Component<ShowVideoProps, ShowVideoState> {
 
   constructor(props: ShowVideoProps) {
     super(props);
+
+    const {
+      data: {
+        challengeNode: {
+          challenge: { questions }
+        }
+      }
+    } = this.props;
+
     this.state = {
       subtitles: '',
       downloadURL: null,
-      selectedOption: null,
-      answer: 1,
-      showWrong: false,
+      selectedMcqOptions: questions.map(() => null),
+      submittedMcqAnswers: questions.map(() => null),
+      showFeedback: false,
       videoIsLoaded: false
     };
-
-    this.handleSubmit = this.handleSubmit.bind(this);
   }
 
   componentDidMount(): void {
@@ -158,26 +165,43 @@ class ShowVideo extends Component<ShowVideoProps, ShowVideoState> {
     }
   }
 
-  handleSubmit(solution: number, openCompletionModal: () => void) {
-    if (solution - 1 === this.state.selectedOption) {
-      this.setState({
-        showWrong: false
-      });
-      openCompletionModal();
-    } else {
-      this.setState({
-        showWrong: true
-      });
-    }
-  }
+  handleSubmit = () => {
+    const {
+      data: {
+        challengeNode: {
+          challenge: { questions }
+        }
+      },
+      openCompletionModal
+    } = this.props;
 
-  handleOptionChange = (
-    changeEvent: React.ChangeEvent<HTMLInputElement>
-  ): void => {
+    // subract 1 because the solutions are 1-indexed
+    const mcqSolutions = questions.map(question => question.solution - 1);
+
     this.setState({
-      showWrong: false,
-      selectedOption: parseInt(changeEvent.target.value, 10)
+      submittedMcqAnswers: this.state.selectedMcqOptions,
+      showFeedback: true
     });
+
+    const allMcqAnswersCorrect = isEqual(
+      mcqSolutions,
+      this.state.selectedMcqOptions
+    );
+
+    if (allMcqAnswersCorrect) {
+      openCompletionModal();
+    }
+  };
+
+  handleMcqOptionChange = (
+    questionIndex: number,
+    answerIndex: number
+  ): void => {
+    this.setState(state => ({
+      selectedMcqOptions: state.selectedMcqOptions.map((option, index) =>
+        index === questionIndex ? answerIndex : option
+      )
+    }));
   };
 
   onVideoLoad = () => {
@@ -201,11 +225,10 @@ class ShowVideo extends Component<ShowVideoProps, ShowVideoState> {
             videoLocaleIds,
             bilibiliIds,
             fields: { blockName },
-            question: { text, answers, solution }
+            questions
           }
         }
       },
-      openCompletionModal,
       openHelpModal,
       pageContext: {
         challengeMeta: { nextChallengePath, prevChallengePath }
@@ -218,16 +241,9 @@ class ShowVideo extends Component<ShowVideoProps, ShowVideoState> {
       `intro:${superBlock}.blocks.${block}.title`
     )} - ${title}`;
 
-    const feedback =
-      this.state.selectedOption !== null
-        ? answers[this.state.selectedOption].feedback
-        : undefined;
-
     return (
       <Hotkeys
-        executeChallenge={() => {
-          this.handleSubmit(solution, openCompletionModal);
-        }}
+        executeChallenge={this.handleSubmit}
         containerRef={this.container}
         nextChallengePath={nextChallengePath}
         prevChallengePath={prevChallengePath}
@@ -248,90 +264,33 @@ class ShowVideo extends Component<ShowVideoProps, ShowVideoState> {
 
               {challengeType === challengeTypes.video && (
                 <Col lg={10} lgOffset={1} md={10} mdOffset={1}>
-                  <div className='video-wrapper'>
-                    {!this.state.videoIsLoaded ? (
-                      <div className='video-placeholder-loader'>
-                        <Loader />
-                      </div>
-                    ) : null}
-                    <VideoPlayer
-                      bilibiliIds={bilibiliIds}
-                      onVideoLoad={this.onVideoLoad}
-                      title={title}
-                      videoId={videoId}
-                      videoIsLoaded={this.state.videoIsLoaded}
-                      videoLocaleIds={videoLocaleIds}
-                    />
-                  </div>
+                  <VideoPlayer
+                    bilibiliIds={bilibiliIds}
+                    onVideoLoad={this.onVideoLoad}
+                    title={title}
+                    videoId={videoId}
+                    videoIsLoaded={this.state.videoIsLoaded}
+                    videoLocaleIds={videoLocaleIds}
+                  />
                 </Col>
               )}
 
               <Col md={8} mdOffset={2} sm={10} smOffset={1} xs={12}>
                 <ChallengeDescription description={description} />
-                <PrismFormatted className={'line-numbers'} text={text} />
-                <Spacer size='medium' />
                 <ObserveKeys>
-                  <div className='video-quiz-options'>
-                    {answers.map(({ answer }, index) => (
-                      // answers are static and have no natural id property, so
-                      // index should be fine as a key:
-                      <label
-                        className='video-quiz-option-label'
-                        key={index}
-                        htmlFor={`mc-question-${index}`}
-                      >
-                        <input
-                          checked={this.state.selectedOption === index}
-                          className='sr-only'
-                          name='quiz'
-                          onChange={this.handleOptionChange}
-                          type='radio'
-                          value={index}
-                          id={`mc-question-${index}`}
-                        />{' '}
-                        <span className='video-quiz-input-visible'>
-                          {this.state.selectedOption === index ? (
-                            <span className='video-quiz-selected-input' />
-                          ) : null}
-                        </span>
-                        <PrismFormatted
-                          className={'video-quiz-option'}
-                          text={answer.replace(/^<p>|<\/p>$/g, '')}
-                          useSpan
-                          noAria
-                        />
-                      </label>
-                    ))}
-                  </div>
+                  <MultipleChoiceQuestions
+                    questions={questions}
+                    selectedOptions={this.state.selectedMcqOptions}
+                    handleOptionChange={this.handleMcqOptionChange}
+                    submittedMcqAnswers={this.state.submittedMcqAnswers}
+                    showFeedback={this.state.showFeedback}
+                  />
                 </ObserveKeys>
-                <Spacer size='medium' />
-                <div
-                  style={{
-                    textAlign: 'center'
-                  }}
-                >
-                  {this.state.showWrong ? (
-                    <span>
-                      {feedback ? (
-                        <PrismFormatted
-                          className={'multiple-choice-feedback'}
-                          text={feedback}
-                        />
-                      ) : (
-                        t('learn.wrong-answer')
-                      )}
-                    </span>
-                  ) : (
-                    <span>{t('learn.check-answer')}</span>
-                  )}
-                </div>
                 <Spacer size='medium' />
                 <Button
                   block={true}
                   variant='primary'
-                  onClick={() =>
-                    this.handleSubmit(solution, openCompletionModal)
-                  }
+                  onClick={this.handleSubmit}
                 >
                   {t('buttons.check-answer')}
                 </Button>
@@ -359,8 +318,8 @@ export default connect(
 )(withTranslation()(ShowVideo));
 
 export const query = graphql`
-  query VideoChallenge($slug: String!) {
-    challengeNode(challenge: { fields: { slug: { eq: $slug } } }) {
+  query VideoChallenge($id: String!) {
+    challengeNode(id: { eq: $id }) {
       challenge {
         videoId
         videoLocaleIds {
@@ -387,7 +346,7 @@ export const query = graphql`
             testString
           }
         }
-        question {
+        questions {
           text
           answers {
             answer

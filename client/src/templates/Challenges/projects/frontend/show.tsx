@@ -197,6 +197,7 @@ class Project extends Component<ProjectProps> {
                   description={description}
                   instructions={instructions}
                 />
+                <Spacer size='medium' />
                 <SolutionForm
                   challengeType={challengeType}
                   description={description}
@@ -228,8 +229,8 @@ export default connect(
 )(withTranslation()(Project));
 
 export const query = graphql`
-  query ProjectChallenge($slug: String!) {
-    challengeNode(challenge: { fields: { slug: { eq: $slug } } }) {
+  query ProjectChallenge($id: String!) {
+    challengeNode(id: { eq: $id }) {
       challenge {
         forumTopicId
         title

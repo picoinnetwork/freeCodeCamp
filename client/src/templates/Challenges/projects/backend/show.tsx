@@ -242,6 +242,7 @@ class BackEnd extends Component<BackEndProps> {
                   description={description}
                   instructions={instructions}
                 />
+                <Spacer size='medium' />
                 <SolutionForm
                   challengeType={challengeType}
                   // eslint-disable-next-line @typescript-eslint/unbound-method
@@ -282,8 +283,8 @@ export default connect(
 )(withTranslation()(BackEnd));
 
 export const query = graphql`
-  query BackendChallenge($slug: String!) {
-    challengeNode(challenge: { fields: { slug: { eq: $slug } } }) {
+  query BackendChallenge($id: String!) {
+    challengeNode(id: { eq: $id }) {
       challenge {
         forumTopicId
         title

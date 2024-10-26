@@ -16,6 +16,7 @@
 }
 
 .fill-in-the-blank-input {
+  font-family: monospace;
   padding: 0;
   text-align: center;
   background-color: var(--primary-background);
@@ -33,25 +34,6 @@
 
 .fill-in-the-blank-input:focus {
   z-index: 2;
-}
-
-.code-tag code {
-  font-size: 100%;
-  z-index: 0;
-  position: relative;
-}
-
-.first-code-tag code {
-  border-right: none;
-}
-
-.middle-code-tag code {
-  border-left: none;
-  border-right: none;
-}
-
-.last-code-tag code {
-  border-left: none;
 }
 
 .green-underline {

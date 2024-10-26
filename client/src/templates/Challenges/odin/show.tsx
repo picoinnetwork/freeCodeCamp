@@ -9,11 +9,11 @@ import { connect } from 'react-redux';
 import { bindActionCreators } from 'redux';
 import type { Dispatch } from 'redux';
 import { createSelector } from 'reselect';
+import { isEqual } from 'lodash-es';
 import { Container, Col, Row, Button } from '@freecodecamp/ui';
 import ShortcutsModal from '../components/shortcuts-modal';
 
 // Local Utilities
-import Loader from '../../../components/helpers/loader';
 import Spacer from '../../../components/helpers/spacer';
 import LearnLayout from '../../../components/layouts/learn';
 import { ChallengeNode, ChallengeMeta, Test } from '../../../redux/prop-types';
@@ -24,7 +24,9 @@ import HelpModal from '../components/help-modal';
 import Scene from '../components/scene/scene';
 import PrismFormatted from '../components/prism-formatted';
 import ChallengeTitle from '../components/challenge-title';
-import ChallengeHeading from '../components/challenge-heading';
+import ChallegeExplanation from '../components/challenge-explanation';
+import MultipleChoiceQuestions from '../components/multiple-choice-questions';
+import Assignments from '../components/assignments';
 import {
   challengeMounted,
   updateChallengeMeta,
@@ -62,7 +64,6 @@ const mapDispatchToProps = (dispatch: Dispatch) =>
 interface ShowOdinProps {
   challengeMounted: (arg0: string) => void;
   data: { challengeNode: ChallengeNode };
-  description: string;
   initTests: (xs: Test[]) => void;
   isChallengeCompleted: boolean;
   openCompletionModal: () => void;
@@ -78,9 +79,9 @@ interface ShowOdinProps {
 interface ShowOdinState {
   subtitles: string;
   downloadURL: string | null;
-  selectedOption: number | null;
-  answer: number;
-  isWrongAnswer: boolean;
+  selectedMcqOptions: (number | null)[];
+  submittedMcqAnswers: (number | null)[];
+  showFeedback: boolean;
   assignmentsCompleted: number;
   allAssignmentsCompleted: boolean;
   videoIsLoaded: boolean;
@@ -94,14 +95,23 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
 
   constructor(props: ShowOdinProps) {
     super(props);
+
+    const {
+      data: {
+        challengeNode: {
+          challenge: { assignments, questions }
+        }
+      }
+    } = this.props;
+
     this.state = {
       subtitles: '',
       downloadURL: null,
-      selectedOption: null,
-      answer: 1,
-      isWrongAnswer: false,
+      selectedMcqOptions: questions.map(() => null),
+      submittedMcqAnswers: questions.map(() => null),
+      showFeedback: false,
       assignmentsCompleted: 0,
-      allAssignmentsCompleted: false,
+      allAssignmentsCompleted: assignments.length == 0,
       videoIsLoaded: false,
       isScenePlaying: false
     };
@@ -166,34 +176,43 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
     }
   }
 
-  handleSubmit(
-    solution: number,
-    openCompletionModal: () => void,
-    assignments: string[]
-  ) {
-    const hasAssignments = assignments.length > 0;
-    const completed = this.state.allAssignmentsCompleted;
-    const isCorrect = solution - 1 === this.state.selectedOption;
+  handleSubmit = () => {
+    const {
+      data: {
+        challengeNode: {
+          challenge: { questions }
+        }
+      },
+      openCompletionModal
+    } = this.props;
 
-    if (isCorrect) {
-      this.setState({
-        isWrongAnswer: false
-      });
-      if (!hasAssignments || completed) openCompletionModal();
-    } else {
-      this.setState({
-        isWrongAnswer: true
-      });
-    }
-  }
+    // subract 1 because the solutions are 1-indexed
+    const mcqSolutions = questions.map(question => question.solution - 1);
 
-  handleOptionChange = (
-    changeEvent: React.ChangeEvent<HTMLInputElement>
-  ): void => {
     this.setState({
-      isWrongAnswer: false,
-      selectedOption: parseInt(changeEvent.target.value, 10)
+      submittedMcqAnswers: this.state.selectedMcqOptions,
+      showFeedback: true
     });
+
+    const allMcqAnswersCorrect = isEqual(
+      mcqSolutions,
+      this.state.selectedMcqOptions
+    );
+
+    if (this.state.allAssignmentsCompleted && allMcqAnswersCorrect) {
+      openCompletionModal();
+    }
+  };
+
+  handleMcqOptionChange = (
+    questionIndex: number,
+    answerIndex: number
+  ): void => {
+    this.setState(state => ({
+      selectedMcqOptions: state.selectedMcqOptions.map((option, index) =>
+        index === questionIndex ? answerIndex : option
+      )
+    }));
   };
 
   handleAssignmentChange = (
@@ -230,20 +249,21 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
           challenge: {
             title,
             description,
+            instructions,
+            explanation,
             superBlock,
             block,
             videoId,
             videoLocaleIds,
             bilibiliIds,
             fields: { blockName },
-            question: { text, answers, solution },
+            questions,
             assignments,
             translationPending,
             scene
           }
         }
       },
-      openCompletionModal,
       openHelpModal,
       pageContext: {
         challengeMeta: { nextChallengePath, prevChallengePath }
@@ -256,16 +276,9 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
       `intro:${superBlock}.blocks.${block}.title`
     )} - ${title}`;
 
-    const feedback =
-      this.state.selectedOption !== null
-        ? answers[this.state.selectedOption].feedback
-        : undefined;
-
     return (
       <Hotkeys
-        executeChallenge={() => {
-          this.handleSubmit(solution, openCompletionModal, assignments);
-        }}
+        executeChallenge={this.handleSubmit}
         containerRef={this.container}
         nextChallengePath={nextChallengePath}
         prevChallengePath={prevChallengePath}
@@ -280,23 +293,17 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
               {videoId && (
                 <Col lg={10} lgOffset={1} md={10} mdOffset={1}>
                   <Spacer size='medium' />
-                  <div className='video-wrapper'>
-                    {!this.state.videoIsLoaded ? (
-                      <div className='video-placeholder-loader'>
-                        <Loader />
-                      </div>
-                    ) : null}
-                    <VideoPlayer
-                      bilibiliIds={bilibiliIds}
-                      onVideoLoad={this.onVideoLoad}
-                      title={title}
-                      videoId={videoId}
-                      videoIsLoaded={this.state.videoIsLoaded}
-                      videoLocaleIds={videoLocaleIds}
-                    />
-                  </div>
+                  <VideoPlayer
+                    bilibiliIds={bilibiliIds}
+                    onVideoLoad={this.onVideoLoad}
+                    title={title}
+                    videoId={videoId}
+                    videoIsLoaded={this.state.videoIsLoaded}
+                    videoLocaleIds={videoLocaleIds}
+                  />
                 </Col>
               )}
+
               <Col md={8} mdOffset={2} sm={10} smOffset={1} xs={12}>
                 <Spacer size='medium' />
                 <ChallengeTitle
@@ -310,115 +317,52 @@ class ShowOdin extends Component<ShowOdinProps, ShowOdinState> {
               </Col>
 
               {scene && (
-                <>
-                  <Scene
-                    scene={scene}
-                    isPlaying={this.state.isScenePlaying}
-                    setIsPlaying={this.setIsScenePlaying}
-                  />{' '}
-                  <Spacer size='medium' />
-                </>
+                <Scene
+                  scene={scene}
+                  isPlaying={this.state.isScenePlaying}
+                  setIsPlaying={this.setIsScenePlaying}
+                />
               )}
 
               <Col md={8} mdOffset={2} sm={10} smOffset={1} xs={12}>
+                {instructions && (
+                  <PrismFormatted
+                    className={'line-numbers'}
+                    text={instructions}
+                  />
+                )}
+
                 <ObserveKeys>
                   {assignments.length > 0 && (
-                    <>
-                      <ChallengeHeading heading={t('learn.assignments')} />
-                      <div className='video-quiz-options'>
-                        {assignments.map((assignment, index) => (
-                          <label
-                            className='video-quiz-option-label'
-                            key={index}
-                          >
-                            <input
-                              name='assignment'
-                              type='checkbox'
-                              onChange={event =>
-                                this.handleAssignmentChange(
-                                  event,
-                                  assignments.length
-                                )
-                              }
-                            />
-
-                            <PrismFormatted
-                              className={'video-quiz-option'}
-                              text={assignment}
-                            />
-                            <Spacer size='medium' />
-                          </label>
-                        ))}
-                      </div>{' '}
-                      <Spacer size='medium' />
-                    </>
+                    <Assignments
+                      assignments={assignments}
+                      allAssignmentsCompleted={
+                        this.state.allAssignmentsCompleted
+                      }
+                      handleAssignmentChange={this.handleAssignmentChange}
+                    />
                   )}
 
-                  <ChallengeHeading heading={t('learn.question')} />
-                  <PrismFormatted className={'line-numbers'} text={text} />
-                  <div className='video-quiz-options'>
-                    {answers.map(({ answer }, index) => (
-                      <label className='video-quiz-option-label' key={index}>
-                        <input
-                          aria-label={t('aria.answer')}
-                          checked={this.state.selectedOption === index}
-                          className='sr-only'
-                          name='quiz'
-                          onChange={this.handleOptionChange}
-                          type='radio'
-                          value={index}
-                        />{' '}
-                        <span className='video-quiz-input-visible'>
-                          {this.state.selectedOption === index ? (
-                            <span className='video-quiz-selected-input' />
-                          ) : null}
-                        </span>
-                        <PrismFormatted
-                          className={'video-quiz-option'}
-                          text={answer}
-                        />
-                      </label>
-                    ))}
-                  </div>
+                  <MultipleChoiceQuestions
+                    questions={questions}
+                    selectedOptions={this.state.selectedMcqOptions}
+                    handleOptionChange={this.handleMcqOptionChange}
+                    submittedMcqAnswers={this.state.submittedMcqAnswers}
+                    showFeedback={this.state.showFeedback}
+                  />
                 </ObserveKeys>
-                <Spacer size='medium' />
-                <div
-                  style={{
-                    textAlign: 'center'
-                  }}
-                >
-                  {this.state.isWrongAnswer && (
-                    <span>
-                      {feedback ? (
-                        <PrismFormatted
-                          className={'multiple-choice-feedback'}
-                          text={feedback}
-                        />
-                      ) : (
-                        t('learn.wrong-answer')
-                      )}
-                    </span>
-                  )}
-                  {!this.state.allAssignmentsCompleted &&
-                    assignments.length > 0 && (
-                      <>
-                        <br />
-                        <span>{t('learn.assignment-not-complete')}</span>
-                      </>
-                    )}
-                </div>
-                <Spacer size='medium' />
+
+                {explanation ? (
+                  <ChallegeExplanation explanation={explanation} />
+                ) : (
+                  <Spacer size='medium' />
+                )}
+
                 <Button
                   block={true}
                   size='medium'
                   variant='primary'
-                  onClick={() =>
-                    this.handleSubmit(
-                      solution,
-                      openCompletionModal,
-                      assignments
-                    )
-                  }
+                  onClick={this.handleSubmit}
                 >
                   {t('buttons.check-answer')}
                 </Button>
@@ -452,8 +396,8 @@ export default connect(
 )(withTranslation()(ShowOdin));
 
 export const query = graphql`
-  query TheOdinProject($slug: String!) {
-    challengeNode(challenge: { fields: { slug: { eq: $slug } } }) {
+  query TheOdinProject($id: String!) {
+    challengeNode(id: { eq: $id }) {
       challenge {
         videoId
         videoLocaleIds {
@@ -468,6 +412,8 @@ export const query = graphql`
         }
         title
         description
+        instructions
+        explanation
         challengeType
         helpCategory
         superBlock
@@ -480,7 +426,7 @@ export const query = graphql`
             testString
           }
         }
-        question {
+        questions {
           text
           answers {
             answer

@@ -257,7 +257,6 @@ class ShowExam extends Component<ShowExamProps, ShowExamState> {
           this.props.startExam();
 
           window.addEventListener('beforeunload', this.stopWindowClose);
-          window.addEventListener('unload', this.stopWindowClose);
           window.addEventListener('popstate', this.stopBrowserBack);
         }
       );
@@ -298,7 +297,6 @@ class ShowExam extends Component<ShowExamProps, ShowExamState> {
     });
 
     window.removeEventListener('beforeunload', this.stopWindowClose);
-    window.removeEventListener('unload', this.stopWindowClose);
     window.removeEventListener('popstate', this.stopBrowserBack);
 
     this.props.clearExamResults();
@@ -596,8 +594,8 @@ export default connect(
 
 // GraphQL
 export const query = graphql`
-  query ExamChallenge($slug: String!) {
-    challengeNode(challenge: { fields: { slug: { eq: $slug } } }) {
+  query ExamChallenge($id: String!) {
+    challengeNode(id: { eq: $id }) {
       challenge {
         block
         challengeType
